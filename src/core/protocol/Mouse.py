@@ -1,6 +1,6 @@
 import abc
 
-from src.core import StringUtils
+from src.core.utils import StringUtils
 from src.core.protocol.Action import Action
 
 

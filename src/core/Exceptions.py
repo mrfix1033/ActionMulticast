@@ -1,0 +1,2 @@
+class LastReleaseAlreadyInstalled(RuntimeWarning):
+    pass

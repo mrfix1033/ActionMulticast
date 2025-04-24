@@ -2,3 +2,4 @@ aiohttp
 pywin32
 pynput
 screeninfo
+aioconsole
