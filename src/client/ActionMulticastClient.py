@@ -1,24 +1,29 @@
 import asyncio
+import atexit
+import os
 import socket
-import sys
+import subprocess
+import time
 import traceback
 
 import win32api
 import win32con
-from aioconsole import ainput
 
+import src.core.utils.CommandsListener
 from src.client import config
+from src.client.commands import *
+from src.core.CoreCommands import *
 from src.core.Exceptions import LastReleaseAlreadyInstalled
-from src.core.protocol.ServerBroadcast import IAmServer
 from src.core.Updater import Updater
 from src.core.protocol.Keyboard import *
 from src.core.protocol.Mouse import *
+from src.core.protocol.ServerBroadcast import IAmServer
 from src.core.utils.PacketUtils import PacketBuffer
 
 
-class MultipleActionBroadcastingClient:
+class ActionMulticastClient:
     def __init__(self):
-        self.version = "beta-3"
+        self.version = CoreConstants.version
         self.updater = Updater(self.version, True)
         self.commands_buffer = PacketBuffer()
         self.running = True
@@ -40,29 +45,41 @@ class MultipleActionBroadcastingClient:
 
     async def update(self):
         try:
-            self.updater.update()
+            await self.updater.update()
         except LastReleaseAlreadyInstalled:
             print("Нет обновлений")
 
     async def start_handle_input(self):
-        while self.running:
-            try:
-                command = await ainput("Вы можете вводить команды\n")
-                if command == "update":
-                    await self.update()
-                else:
-                    print("Unknown command")
-            except (KeyboardInterrupt, EOFError, asyncio.CancelledError):
-                pass
-            except:
-                traceback.print_exc()
+        commands_map = {
+            'startup': StartupCommand(),
+            'update': UpdateCommand(lambda: asyncio.gather(asyncio.create_task(self.update()))),
+            'restart': RestartCommand(lambda: asyncio.gather(asyncio.create_task(self.restart()))),
+            'stop': StopCommand(lambda: asyncio.gather(asyncio.create_task(self.stop())))
+        }
+        commands_map["help"] = HelpCommand(list(commands_map.values()))
+        await src.core.utils.CommandsListener.start_listen_commands(commands_map, lambda: self.running)
+
+    async def stop_logic(self):
+        self.running = False
+        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        global is_main_loop_running
+        is_main_loop_running = False
 
     async def stop(self):
         print("Завершение работы...")
-        self.running = False
-        for task in asyncio.all_tasks():
-            if task is not asyncio.current_task():
-                task.cancel()
+        await self.stop_logic()
+
+    async def restart(self):
+        print("Перезапуск...")
+        await self.stop_logic()
+        python = sys.executable
+        script = os.path.abspath(sys.argv[0])
+        subprocess.Popen([python, script] + sys.argv[1:])
+        atexit._run_exitfuncs()
+        os._exit(0)
 
     async def start_client(self):
         while self.running:
@@ -159,8 +176,10 @@ class MultipleActionBroadcastingClient:
 
 
 if __name__ == "__main__":
-    while True:
-        client = MultipleActionBroadcastingClient()
+    print(CoreConstants.greeting)
+    is_main_loop_running = True
+    while is_main_loop_running:
+        client = ActionMulticastClient()
         loop = asyncio.get_event_loop()
 
         try:
@@ -168,5 +187,10 @@ if __name__ == "__main__":
         except KeyboardInterrupt:
             loop.run_until_complete(client.stop())
             break
+        except:
+            print("КРИТИЧЕСКАЯ ОШИБКА")
+            traceback.print_exc()
+            print("Рестарт через 5 секунд...")
+            time.sleep(5)
         finally:
             loop.close()
