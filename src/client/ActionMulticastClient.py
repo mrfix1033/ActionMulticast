@@ -48,6 +48,7 @@ class ActionMulticastClient:
         for thread in self.threads:
             print("Крепление к потоку", thread)
             thread.join()
+        print("Все потоки завершены")
 
     def update(self):
         try:
@@ -91,37 +92,22 @@ class ActionMulticastClient:
         save_path = os.path.join(os.getenv('TEMP'), need_asset)
 
         bat_content = f"""
-@echo off
-chcp 65001
-timeout /t 1 /nobreak
-taskkill /IM "{os.path.basename(sys.executable)}" /F
-timeout /t 1 /nobreak
-move /Y "{save_path}" "{sys.executable}"
-start "" "{sys.executable}"
+@echo off 
+chcp 65001 > nul
+move /Y "{save_path}" "{sys.executable}" > nul
+"{sys.executable}"
 del "%~f0"
+pause
     """
         bat_path = os.path.join(os.getenv('TEMP'), f"update_{os.getpid()}.bat")
 
-        try:
-            # 4. Гарантированная запись батника
-            with open(bat_path, 'w', encoding='utf-8') as f:
-                f.write(bat_content)
-                f.flush()
-                os.fsync(f.fileno())
-
-            # 5. Запуск батника
-            CREATE_NO_WINDOW = 0x08000000
-            subprocess.Popen(
-                ['cmd.exe', '/C', bat_path],
-                creationflags=CREATE_NO_WINDOW,
-                shell=True
-            )
-
-        except Exception as e:
-            print(f"Критическая ошибка: {e}")
-            traceback.print_exc()
-        finally:
-            os._exit(0)
+        with open(bat_path, 'w', encoding='utf-8') as f:
+            f.write(bat_content)
+        subprocess.Popen(
+            ['cmd.exe', '/C', bat_path],
+            shell=True
+        )
+        print("Ожидание завершения работы...")
 
     async def start_client(self):
         while self.running:
@@ -239,3 +225,5 @@ if __name__ == "__main__":
             traceback.print_exc()
             print("Рестарт через 5 секунд...")
             time.sleep(5)
+    print("Завершено")
+    input("Нажмите Enter для закрытия окна")
