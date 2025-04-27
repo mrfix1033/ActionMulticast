@@ -8,7 +8,7 @@ class RestartCommand(BaseCommand):
     def get_usage(self) -> str:
         return "restart - перезапустить программу"
 
-    async def execute(self, args: list[str]):
+    def execute(self, args: list[str]):
         self.restart_func()
 
 
@@ -19,5 +19,5 @@ class StopCommand(BaseCommand):
     def get_usage(self) -> str:
         return "stop - остановить программу"
 
-    async def execute(self, args: list[str]):
+    def execute(self, args: list[str]):
         self.stop_func()

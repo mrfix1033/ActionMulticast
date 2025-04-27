@@ -1,4 +1,4 @@
-aiohttp
+requests
 pywin32
 pynput
 screeninfo

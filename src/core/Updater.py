@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import traceback
 
 from src.core import Network, CoreConstants
 from src.core.Exceptions import LastReleaseAlreadyInstalled
@@ -12,32 +13,35 @@ class Updater:
         self.release = None
         self.is_client = is_client
 
-    async def check_update(self):
+    def check_update(self):
         """
         :return: None - если установлена последняя версия, dict (release) - если есть версия новее
         """
         url_releases = f"https://api.github.com/repos/mrfix1033/{CoreConstants.program_name}/releases"
         try:
-            async with Network.get_client_session() as session:
-                async with session.get(url=url_releases) as response:
-                    text = await response.text()
+            with Network.get_client_session() as session:
+                with session.get(url=url_releases, timeout=5) as response:
+                    text = response.text
+                    releases = json.loads(text)
+                    last_release = releases[0]
+            if not last_release["draft"] \
+                    and not last_release["prerelease"] \
+                    and last_release["tag_name"] != self.version:
+                self.release = last_release
+                self.notify()
+        except KeyError:
+            print("Слишком частый запрос обновлений, попробуйте позже")
         except:
             print("Не удалось запросить обновления")
+            traceback.print_exc()
             return
-        releases = json.loads(text)
-        last_release = releases[0]
-        if not last_release["draft"] \
-                and not last_release["prerelease"] \
-                and last_release["tag_name"] != self.version:
-            self.release = last_release
-            self.notify()
 
     def notify(self):
         print(
             "Доступна новая версия программы (текущая: {}) (новая: {}), напишите update для обновления".format(
                 self.version, self.release["tag_name"]))
 
-    async def update(self) -> bool:
+    def update(self) -> bool:
         if self.release is None:
             raise LastReleaseAlreadyInstalled()
         client_or_server = "client" if self.is_client else "server"
@@ -49,7 +53,7 @@ class Updater:
                 download_url = asset["browser_download_url"]
                 save_path = os.path.join(os.getenv('TEMP'), need_asset)
                 print("Загрузка...")
-                code = await Network.download_file(download_url, save_path)
+                code = Network.download_file(download_url, save_path)
                 if code != 200:
                     print(f"Что-то пошло не так при загрузке файла, HTTP-code: {code}")
                     return False

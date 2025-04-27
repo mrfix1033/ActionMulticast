@@ -12,7 +12,7 @@ class BaseCommand(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def execute(self, args: list[str]):
+    def execute(self, args: list[str]):
         pass
 
 
@@ -23,7 +23,7 @@ class HelpCommand(BaseCommand):
     def get_usage(self) -> str:
         return "help - показать все доступные команды"
 
-    async def execute(self, args: list[str]):
+    def execute(self, args: list[str]):
         for command in self.commands:
             print(command.get_usage())
 
@@ -32,20 +32,20 @@ class StartupCommand(BaseCommand):
     def get_usage(self) -> str:
         return "startup add/remove - добавить/убрать программу из автозагрузки"
 
-    async def execute(self, args: list[str]):
+    def execute(self, args: list[str]):
         if len(args) < 1:
             not_enough_arguments(self.get_usage())
             return
         action = args[0]
         if action == "add":
-            await self._add_to_startup()
+            self._add_to_startup()
         elif action == "remove":
-            await self._remove_from_startup()
+            self._remove_from_startup()
         else:
             incorrect_usage(self.get_usage())
             return
 
-    async def _add_to_startup(self):
+    def _add_to_startup(self):
         raise NotImplementedError("Ещё не готово")
         app_name = CoreConstants.program_name
         exe_path = sys.executable if getattr(sys, 'frozen', False) else sys.argv[0]
@@ -62,7 +62,7 @@ class StartupCommand(BaseCommand):
             print("Ошибка добавления в автозагрузку")
             traceback.print_exc()
 
-    async def _remove_from_startup(self):
+    def _remove_from_startup(self):
         raise NotImplementedError("Ещё не готово")
         try:
             with winreg.OpenKey(
@@ -84,7 +84,7 @@ class UpdateCommand(BaseCommand):
     def get_usage(self) -> str:
         return "update - обновить программу до последней версии"
 
-    async def execute(self, args: list[str]):
+    def execute(self, args: list[str]):
         self.update_func()
 
 

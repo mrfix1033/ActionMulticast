@@ -2,6 +2,7 @@ import asyncio
 import os
 import socket
 import subprocess
+import threading
 import time
 import traceback
 
@@ -25,50 +26,65 @@ class ActionMulticastClient:
         self.version = CoreConstants.version
         self.updater = Updater(self.version, True)
         self.commands_buffer = PacketBuffer()
+        self.loop = asyncio.new_event_loop()
         self.running = True
+        self.threads = []
+        self.udp_client = None
+        self.client = None
 
-    async def main(self):
-        if sys.platform == 'win32':
-            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
-        tasks = [
-            asyncio.create_task(self.updater.check_update()),
-            asyncio.create_task(self.start_handle_input()),
-            asyncio.create_task(self.start_client())
+    def main(self):
+        self.threads = [
+            threading.Thread(target=self.start_handle_input),
+            threading.Thread(target=self.updater.check_update),
         ]
+        for thread in self.threads:
+            thread.start()
+        self.loop.run_until_complete(self._async_start())
 
-        try:
-            await asyncio.gather(*tasks)
-        except asyncio.CancelledError:
-            pass
+    async def _async_start(self):
+        await self.start_client()
 
-    async def update(self):
+    def join(self):
+        for thread in self.threads:
+            print("Крепление к потоку", thread)
+            thread.join()
+
+    def update(self):
         try:
-            await self.updater.update()
+            self.updater.update()
         except LastReleaseAlreadyInstalled:
             print("Нет обновлений")
 
-    async def start_handle_input(self):
+    def start_handle_input(self):
         commands_map = {
             'startup': StartupCommand(),
-            'update': UpdateCommand(lambda: asyncio.gather(asyncio.create_task(self.update()))),
-            'restart': RestartCommand(lambda: asyncio.gather(asyncio.create_task(self.restart()))),
-            'stop': StopCommand(lambda: asyncio.gather(asyncio.create_task(self.stop())))
+            'update': UpdateCommand(self.update),
+            'restart': RestartCommand(self.restart),
+            'stop': StopCommand(self.stop),
+            'version': Version(self.version),
         }
         commands_map["help"] = HelpCommand(list(commands_map.values()))
-        await src.core.utils.CommandsListener.start_listen_commands(commands_map, lambda: self.running)
-        print("handled")
+        src.core.utils.CommandsListener.start_listen_commands(commands_map, lambda: self.running)
+        print("Обработка команд прекращена")
 
-    async def stop_logic(self):
+    def stop_logic(self):
         self.running = False
         global is_main_loop_running
         is_main_loop_running = False
-        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-        await asyncio.sleep(5)
+        if self.udp_client is not None:
+            self.udp_client.close()
+        if self.client is not None:
+            self.client.close()
+        self.loop.stop()
 
-    async def restart(self):
+    def stop(self):
+        print("Завершение работы...")
+        self.stop_logic()
+        print("Ожидание завершения работы...")
+
+    def restart(self):
         print("Перезапуск...")
-        await self.stop_logic()
+        self.stop_logic()
 
         client_or_server = "client"
         need_asset = f"ActionMulticast-{client_or_server}-{sys.platform}{CoreConstants.platform_to_extension[sys.platform]}"
@@ -107,47 +123,43 @@ del "%~f0"
         finally:
             os._exit(0)
 
-    async def stop(self):
-        print("Завершение работы...")
-        await self.stop_logic()
-
     async def start_client(self):
         while self.running:
             server_ip_port = config.server_ip, config.server_port
             if server_ip_port[0] is None:
                 print("Поиск серверов...")
-                server_ip_port = await self.find_server()
+                server_ip_port = self.find_server()
             if server_ip_port is None:
-                return
+                continue
             print(f"Подключение к {server_ip_port[0]}:{server_ip_port[1]}")
             try:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
-                    client.settimeout(2)
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as self.client:
                     try:
-                        client.connect(server_ip_port)
-                    except socket.timeout:
+                        self.client.connect(server_ip_port)
+                    except InterruptedError:
                         continue
                     print("Подключено")
-                    await self.start_listen_server(client)
+                    self.start_listen_server(self.client)
             except ConnectionRefusedError:
-                print("Connection refused")
-                await asyncio.sleep(5)
+                print("Connection refused, waiting for 5 seconds")
+                time.sleep(5)
             except:
                 traceback.print_exc()
+        print("Соединение закрыто")
 
-    async def find_server(self) -> typing.Optional[str]:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp_client:
-            udp_client.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            udp_client.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            udp_client.bind(('0.0.0.0', config.beacon_port))
-            udp_client.settimeout(0.5)
+    def find_server(self) -> typing.Optional[str]:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as self.udp_client:
+            self.udp_client.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.udp_client.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            self.udp_client.bind(('0.0.0.0', config.beacon_port))
 
             command_buffer = PacketBuffer()
 
             while self.running:
+                print("Ожидание маяка...")
                 try:
-                    data, ip_port = udp_client.recvfrom(1024)
-                except socket.timeout:
+                    data, ip_port = self.udp_client.recvfrom(1024)
+                except OSError:
                     continue
                 command_buffer.put(data.decode())
                 commands = command_buffer.get()
@@ -157,21 +169,20 @@ del "%~f0"
                         return ip_port
         return None
 
-    async def start_listen_server(self, client):
-        client.settimeout(1)
+    def start_listen_server(self, client):
         while self.running:
             try:
                 data = client.recv(1024)
-            except socket.timeout:
+            except OSError:
                 continue
             except ConnectionResetError:
                 print("Connection reset")
                 break
             self.commands_buffer.put(data.decode())
             for command in self.commands_buffer.get():
-                await self.handle_command(command)
+                self.handle_command(command)
 
-    async def handle_command(self, text):
+    def handle_command(self, text):
         text = text.split(' ')
         protocol_name, protocol_data = text[0], text[1:]
         if protocol_name == KeyboardPressAction.get_id():
@@ -212,22 +223,19 @@ del "%~f0"
 
 
 if __name__ == "__main__":
-    print(CoreConstants.greeting)
+    print(CoreConstants.greeting("Client"))
     is_main_loop_running = True
     while is_main_loop_running:
         client = ActionMulticastClient()
-        loop = asyncio.get_event_loop()
-
         try:
-            loop.run_until_complete(client.main())
+            client.main()
+            client.join()
         except KeyboardInterrupt:
-            loop.run_until_complete(client.stop())
+            client.stop()
+            client.join()
             break
         except:
-            print("КРИТИЧЕСКАЯ ОШИБКА")
+            print("КРИТИЧЕСКАЯ ОШИБКА, пожалуйста, напишите автору")
             traceback.print_exc()
             print("Рестарт через 5 секунд...")
             time.sleep(5)
-        finally:
-            loop.close()
-    input("Нажмите Enter чтобы закрыть окно")

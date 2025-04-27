@@ -1,7 +1,7 @@
 import ssl
 from pathlib import Path
 
-import aiohttp
+import requests
 
 
 def get_client_session():
@@ -15,7 +15,10 @@ def get_client_session():
     #     enable_cleanup_closed=True
     # )
 
-    return aiohttp.ClientSession(trust_env=True)
+    session = requests.session()
+    session.trust_env = True
+    return session
+
 
 async def download_file(download_url: str, save_path: str):
     async with get_client_session() as session:

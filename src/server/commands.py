@@ -12,7 +12,7 @@ class ServerToClientCommand(BaseCommand, ABC):
         self.all_clients_func = all_clients_func
         self.all_func = all_func
 
-    async def execute(self, args: list[str]):
+    def execute(self, args: list[str]):
         if not args:
             CommandsUtils.not_enough_arguments(self.get_usage())
             return
