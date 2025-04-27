@@ -1,5 +1,4 @@
 import asyncio
-import atexit
 import os
 import socket
 import subprocess
@@ -58,28 +57,59 @@ class ActionMulticastClient:
         }
         commands_map["help"] = HelpCommand(list(commands_map.values()))
         await src.core.utils.CommandsListener.start_listen_commands(commands_map, lambda: self.running)
+        print("handled")
 
     async def stop_logic(self):
         self.running = False
-        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
         global is_main_loop_running
         is_main_loop_running = False
-
-    async def stop(self):
-        print("Завершение работы...")
-        await self.stop_logic()
+        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        await asyncio.sleep(5)
 
     async def restart(self):
         print("Перезапуск...")
         await self.stop_logic()
-        python = sys.executable
-        script = os.path.abspath(sys.argv[0])
-        subprocess.Popen([python, script] + sys.argv[1:])
-        atexit._run_exitfuncs()
-        os._exit(0)
+
+        client_or_server = "client"
+        need_asset = f"ActionMulticast-{client_or_server}-{sys.platform}{CoreConstants.platform_to_extension[sys.platform]}"
+        save_path = os.path.join(os.getenv('TEMP'), need_asset)
+
+        bat_content = f"""
+@echo off
+chcp 65001
+timeout /t 1 /nobreak
+taskkill /IM "{os.path.basename(sys.executable)}" /F
+timeout /t 1 /nobreak
+move /Y "{save_path}" "{sys.executable}"
+start "" "{sys.executable}"
+del "%~f0"
+    """
+        bat_path = os.path.join(os.getenv('TEMP'), f"update_{os.getpid()}.bat")
+
+        try:
+            # 4. Гарантированная запись батника
+            with open(bat_path, 'w', encoding='utf-8') as f:
+                f.write(bat_content)
+                f.flush()
+                os.fsync(f.fileno())
+
+            # 5. Запуск батника
+            CREATE_NO_WINDOW = 0x08000000
+            subprocess.Popen(
+                ['cmd.exe', '/C', bat_path],
+                creationflags=CREATE_NO_WINDOW,
+                shell=True
+            )
+
+        except Exception as e:
+            print(f"Критическая ошибка: {e}")
+            traceback.print_exc()
+        finally:
+            os._exit(0)
+
+    async def stop(self):
+        print("Завершение работы...")
+        await self.stop_logic()
 
     async def start_client(self):
         while self.running:
@@ -87,47 +117,53 @@ class ActionMulticastClient:
             if server_ip_port[0] is None:
                 print("Поиск серверов...")
                 server_ip_port = await self.find_server()
+            if server_ip_port is None:
+                return
             print(f"Подключение к {server_ip_port[0]}:{server_ip_port[1]}")
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
-                    client.connect(server_ip_port)
+                    client.settimeout(2)
+                    try:
+                        client.connect(server_ip_port)
+                    except socket.timeout:
+                        continue
                     print("Подключено")
                     await self.start_listen_server(client)
             except ConnectionRefusedError:
                 print("Connection refused")
                 await asyncio.sleep(5)
-                continue
             except:
                 traceback.print_exc()
 
-    async def find_server(self) -> str:
+    async def find_server(self) -> typing.Optional[str]:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp_client:
             udp_client.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             udp_client.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
             udp_client.bind(('0.0.0.0', config.beacon_port))
-            udp_client.settimeout(0.1)
+            udp_client.settimeout(0.5)
 
             command_buffer = PacketBuffer()
-            is_server_found = False
 
-            while self.running and not is_server_found:
+            while self.running:
                 try:
                     data, ip_port = udp_client.recvfrom(1024)
                 except socket.timeout:
-                    await asyncio.sleep(0.5)
                     continue
                 command_buffer.put(data.decode())
                 commands = command_buffer.get()
                 for command in commands:
                     command = command.split(' ')
                     if command[0] == IAmServer.get_id():
-                        is_server_found = True
-        return ip_port
+                        return ip_port
+        return None
 
     async def start_listen_server(self, client):
+        client.settimeout(1)
         while self.running:
             try:
                 data = client.recv(1024)
+            except socket.timeout:
+                continue
             except ConnectionResetError:
                 print("Connection reset")
                 break
@@ -194,3 +230,4 @@ if __name__ == "__main__":
             time.sleep(5)
         finally:
             loop.close()
+    input("Нажмите Enter чтобы закрыть окно")

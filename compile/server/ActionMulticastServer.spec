@@ -22,7 +22,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='ActionMulticastServer',
+    name='ActionMulticast-server-win32',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

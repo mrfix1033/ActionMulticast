@@ -1,9 +1,8 @@
 import json
 import os
-import shutil
 import sys
 
-from src.core import Network
+from src.core import Network, CoreConstants
 from src.core.Exceptions import LastReleaseAlreadyInstalled
 
 
@@ -17,7 +16,7 @@ class Updater:
         """
         :return: None - если установлена последняя версия, dict (release) - если есть версия новее
         """
-        url_releases = "http://api.github.com/repos/mrfix1033/multipleactionbroadcasting/releases"
+        url_releases = f"https://api.github.com/repos/mrfix1033/{CoreConstants.program_name}/releases"
         try:
             async with Network.get_client_session() as session:
                 async with session.get(url=url_releases) as response:
@@ -25,7 +24,8 @@ class Updater:
         except:
             print("Не удалось запросить обновления")
             return
-        last_release = json.loads(text)[0]
+        releases = json.loads(text)
+        last_release = releases[0]
         if not last_release["draft"] \
                 and not last_release["prerelease"] \
                 and last_release["tag_name"] != self.version:
@@ -53,8 +53,8 @@ class Updater:
                 if code != 200:
                     print(f"Что-то пошло не так при загрузке файла, HTTP-code: {code}")
                     return False
-                os.replace(sys.executable, sys.executable + ".old")
-                shutil.move(save_path, sys.executable)
+                # os.replace(sys.executable, sys.executable + ".old")
+                # shutil.move(save_path, sys.executable)
                 print("Обновление загружено. Оно будет установлено после перезапуска")
                 return True
         else:
