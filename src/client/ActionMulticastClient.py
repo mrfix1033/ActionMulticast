@@ -1,7 +1,6 @@
 import asyncio
 import os
 import socket
-import subprocess
 import threading
 import time
 import traceback
@@ -14,6 +13,7 @@ from src.client import config
 from src.client.commands import *
 from src.core.CoreCommands import *
 from src.core.Exceptions import LastReleaseAlreadyInstalled
+from src.core.Loging import Logger
 from src.core.Updater import Updater
 from src.core.protocol.Keyboard import *
 from src.core.protocol.Mouse import *
@@ -34,8 +34,7 @@ class ActionMulticastClient:
 
     def main(self):
         self.threads = [
-            threading.Thread(target=self.start_handle_input),
-            threading.Thread(target=self.updater.check_update),
+            threading.Thread(target=self.start_handle_input)
         ]
         for thread in self.threads:
             thread.start()
@@ -46,15 +45,15 @@ class ActionMulticastClient:
 
     def join(self):
         for thread in self.threads:
-            print("Крепление к потоку", thread)
+            Logger.log("Крепление к потоку", thread)
             thread.join()
-        print("Все потоки завершены")
+        Logger.log("Все потоки завершены")
 
     def update(self):
         try:
             self.updater.update()
         except LastReleaseAlreadyInstalled:
-            print("Нет обновлений")
+            Logger.log("Нет обновлений")
 
     def start_handle_input(self):
         commands_map = {
@@ -63,10 +62,11 @@ class ActionMulticastClient:
             'restart': RestartCommand(self.restart),
             'stop': StopCommand(self.stop),
             'version': Version(self.version),
+            'check_update': CheckUpdate(self.updater.check_update)
         }
         commands_map["help"] = HelpCommand(list(commands_map.values()))
         src.core.utils.CommandsListener.start_listen_commands(commands_map, lambda: self.running)
-        print("Обработка команд прекращена")
+        Logger.log("Обработка команд прекращена")
 
     def stop_logic(self):
         self.running = False
@@ -79,59 +79,39 @@ class ActionMulticastClient:
         self.loop.stop()
 
     def stop(self):
-        print("Завершение работы...")
+        Logger.log("Завершение работы...")
         self.stop_logic()
-        print("Ожидание завершения работы...")
+        Logger.log("Ожидание завершения работы...")
 
     def restart(self):
-        print("Перезапуск...")
+        Logger.log("Перезапуск...")
         self.stop_logic()
-
-        client_or_server = "client"
-        need_asset = f"ActionMulticast-{client_or_server}-{sys.platform}{CoreConstants.platform_to_extension[sys.platform]}"
-        save_path = os.path.join(os.getenv('TEMP'), need_asset)
-
-        bat_content = f"""
-@echo off 
-chcp 65001 > nul
-move /Y "{save_path}" "{sys.executable}" > nul
-"{sys.executable}"
-del "%~f0"
-pause
-    """
-        bat_path = os.path.join(os.getenv('TEMP'), f"update_{os.getpid()}.bat")
-
-        with open(bat_path, 'w', encoding='utf-8') as f:
-            f.write(bat_content)
-        subprocess.Popen(
-            ['cmd.exe', '/C', bat_path],
-            shell=True
-        )
-        print("Ожидание завершения работы...")
+        Logger.log("Ожидание завершения работы...")
+        os.execl(sys.executable, *sys.argv)
 
     async def start_client(self):
         while self.running:
             server_ip_port = config.server_ip, config.server_port
             if server_ip_port[0] is None:
-                print("Поиск серверов...")
+                Logger.log("Поиск серверов...")
                 server_ip_port = self.find_server()
             if server_ip_port is None:
                 continue
-            print(f"Подключение к {server_ip_port[0]}:{server_ip_port[1]}")
+            Logger.log(f"Подключение к {server_ip_port[0]}:{server_ip_port[1]}")
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as self.client:
                     try:
                         self.client.connect(server_ip_port)
                     except InterruptedError:
                         continue
-                    print("Подключено")
+                    Logger.log("Подключено")
                     self.start_listen_server(self.client)
             except ConnectionRefusedError:
-                print("Connection refused, waiting for 5 seconds")
+                Logger.log("Connection refused, waiting for 5 seconds")
                 time.sleep(5)
             except:
                 traceback.print_exc()
-        print("Соединение закрыто")
+        Logger.log("Соединение закрыто")
 
     def find_server(self) -> typing.Optional[str]:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as self.udp_client:
@@ -142,7 +122,7 @@ pause
             command_buffer = PacketBuffer()
 
             while self.running:
-                print("Ожидание маяка...")
+                Logger.log("Ожидание маяка...")
                 try:
                     data, ip_port = self.udp_client.recvfrom(1024)
                 except OSError:
@@ -162,7 +142,7 @@ pause
             except OSError:
                 continue
             except ConnectionResetError:
-                print("Connection reset")
+                Logger.log("Connection reset")
                 break
             self.commands_buffer.put(data.decode())
             for command in self.commands_buffer.get():
@@ -190,7 +170,7 @@ pause
             elif protocol.b == 3:
                 win32api.mouse_event(win32con.MOUSEEVENTF_RIGHTDOWN, 0, 0)
             else:
-                print("unknown mouse button pressed")
+                Logger.log("unknown mouse button pressed")
         elif protocol_name == MouseReleaseAction.get_id():
             protocol = MouseReleaseAction.deserialize(protocol_data)
             if protocol.b == 1:
@@ -200,16 +180,16 @@ pause
             elif protocol.b == 3:
                 win32api.mouse_event(win32con.MOUSEEVENTF_RIGHTUP, 0, 0)
             else:
-                print("unknown mouse button pressed")
+                Logger.log("unknown mouse button pressed")
         elif protocol_name == MouseScrollAction.get_id():
             protocol = MouseScrollAction.deserialize(protocol_data)
             win32api.mouse_event(win32con.MOUSEEVENTF_WHEEL, 0, 0, protocol.dx, protocol.dy)
         else:
-            print("unknown protocol name {}".format(protocol_name))
+            Logger.log("unknown protocol name {}".format(protocol_name))
 
 
 if __name__ == "__main__":
-    print(CoreConstants.greeting("Client"))
+    Logger.log(CoreConstants.greeting("Client"))
     is_main_loop_running = True
     while is_main_loop_running:
         client = ActionMulticastClient()
@@ -221,9 +201,9 @@ if __name__ == "__main__":
             client.join()
             break
         except:
-            print("КРИТИЧЕСКАЯ ОШИБКА, пожалуйста, напишите автору")
+            Logger.log("КРИТИЧЕСКАЯ ОШИБКА, пожалуйста, напишите автору")
             traceback.print_exc()
-            print("Рестарт через 5 секунд...")
+            Logger.log("Рестарт через 5 секунд...")
             time.sleep(5)
-    print("Завершено")
+    Logger.log("Завершено")
     input("Нажмите Enter для закрытия окна")

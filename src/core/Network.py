@@ -20,15 +20,12 @@ def get_client_session():
     return session
 
 
-async def download_file(download_url: str, save_path: str):
-    async with get_client_session() as session:
-        async with session.get(download_url) as response:
-            if response.status == 200:
+def download_file(download_url: str, save_path: str):
+    with get_client_session() as session:
+        with session.get(download_url) as response:
+            if response.status_code == 200:
                 Path(save_path).parent.mkdir(parents=True, exist_ok=True)
                 with open(save_path, 'wb') as f:
-                    while True:
-                        chunk = await response.content.read(8192)
-                        if not chunk:
-                            break
-                        f.write(chunk)
-    return response.status
+                    f.write(response.content)
+                    return None
+    return response.status_code

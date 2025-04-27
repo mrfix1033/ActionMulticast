@@ -8,6 +8,7 @@ import screeninfo
 import src.core.utils.CommandsListener
 from src.core.CoreCommands import *
 from src.core.Exceptions import LastReleaseAlreadyInstalled
+from src.core.Loging import Logger
 from src.core.Updater import Updater
 from src.core.protocol.Keyboard import *
 from src.core.protocol.Mouse import *
@@ -47,14 +48,14 @@ class ActionMulticastServer:
 
     def join(self):
         for thread in self.threads:
-            print("Крепление к потоку", thread)
+            Logger.log("Крепление к потоку", thread)
             thread.join()
 
     def update(self):
         try:
             self.updater.update()
         except LastReleaseAlreadyInstalled:
-            print("Нет обновлений")
+            Logger.log("Нет обновлений")
 
     def start_handle_input(self):
         commands_map = {
@@ -66,7 +67,7 @@ class ActionMulticastServer:
         }
         commands_map["help"] = HelpCommand(list(commands_map.values()))
         src.core.utils.CommandsListener.start_listen_commands(commands_map, lambda: self.running)
-        print("Обработка команд прекращена")
+        Logger.log("Обработка команд прекращена")
 
     def stop_logic(self):
         self.running = False
@@ -87,29 +88,29 @@ class ActionMulticastServer:
             self.server_udp.close()
 
     def stop(self):
-        print("Завершение работы...")
+        Logger.log("Завершение работы...")
         self.stop_logic()
-        print("Ожидание завершения работы...")
+        Logger.log("Ожидание завершения работы...")
 
     def restart(self):
-        print("Перезапуск...")
+        Logger.log("Перезапуск...")
         self.stop_logic()
 
     async def start_server_broadcasting(self):
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as self.server_udp:
             self.server_udp.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
             self.server_udp.bind((config.ip, config.port))
-            print("Маячковый сервер запущен")
+            Logger.log("Маячковый сервер запущен")
             while self.running:
                 self.server_udp.sendto(IAmServer().serialize() + b'\n', ("255.255.255.255", config.beacon_port))
                 await asyncio.sleep(config.beacon_interval)
-        print("Маячковый сервер остановлен")
+        Logger.log("Маячковый сервер остановлен")
 
     async def start_server(self):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as self.server:
             self.server.bind((config.ip, config.port))
             self.server.listen(1000)
-            print("Основной сервер запущен")
+            Logger.log("Основной сервер запущен")
             while self.running:
                 try:
                     await self.accept_client()
@@ -119,12 +120,12 @@ class ActionMulticastServer:
                     if self.running:
                         traceback.print_exc()
                         self.server.accept()
-        print("Основной сервер остановлен")
+        Logger.log("Основной сервер остановлен")
 
     async def accept_client(self):
         client_socket, client_address = self.server.accept()
         self.clients.append(client_socket)
-        print("Connected {}".format(client_address))
+        Logger.log("Connected {}".format(client_address))
 
     def send_to_all_clients(self, data: bytes):
         data += '\n'.encode()
@@ -172,7 +173,7 @@ class ActionMulticastServer:
             magic_to_button_index = {(4, 2, 0): 1, (64, 32, 0): 2, (16, 8, 0): 3}
             button = magic_to_button_index.get(magic_button.value)
             if button is None:
-                print("unknown mouse button pressed/released: {}".format(magic_button))
+                Logger.log("unknown mouse button pressed/released: {}".format(magic_button))
                 return
             if pressed:
                 self.send_to_all_clients(MousePressAction(button).serialize())
@@ -188,7 +189,7 @@ class ActionMulticastServer:
 
 
 if __name__ == "__main__":
-    print(CoreConstants.greeting("Server"))
+    Logger.log(CoreConstants.greeting("Server"))
     is_main_loop_running = True
     while is_main_loop_running:
         server = ActionMulticastServer()
@@ -200,7 +201,7 @@ if __name__ == "__main__":
             server.join()
             break
         except:
-            print("КРИТИЧЕСКАЯ ОШИБКА, пожалуйста, напишите автору")
+            Logger.log("КРИТИЧЕСКАЯ ОШИБКА, пожалуйста, напишите автору")
             traceback.print_exc()
-            print("Рестарт через 5 секунд...")
+            Logger.log("Рестарт через 5 секунд...")
             time.sleep(5)

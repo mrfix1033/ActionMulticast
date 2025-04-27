@@ -1,10 +1,12 @@
 import json
 import os
+import shutil
 import sys
 import traceback
 
 from src.core import Network, CoreConstants
 from src.core.Exceptions import LastReleaseAlreadyInstalled
+from src.core.Loging import Logger
 
 
 class Updater:
@@ -28,39 +30,39 @@ class Updater:
                     and not last_release["prerelease"] \
                     and last_release["tag_name"] != self.version:
                 self.release = last_release
-                self.notify()
+                Logger.log("Доступна новая версия программы (текущая: {}) (новая: {}), напишите update для обновления"
+                      .format(self.version, self.release["tag_name"]))
+            else:
+                Logger.log("Установлена последняя версия")
         except KeyError:
-            print("Слишком частый запрос обновлений, попробуйте позже")
+            Logger.log("Слишком частый запрос обновлений, попробуйте позже")
         except:
-            print("Не удалось запросить обновления")
+            Logger.log("Не удалось запросить обновления")
             traceback.print_exc()
             return
 
-    def notify(self):
-        print(
-            "Доступна новая версия программы (текущая: {}) (новая: {}), напишите update для обновления".format(
-                self.version, self.release["tag_name"]))
-
     def update(self) -> bool:
         if self.release is None:
-            raise LastReleaseAlreadyInstalled()
+            self.check_update()
+            if self.release is None:
+                raise LastReleaseAlreadyInstalled()
         client_or_server = "client" if self.is_client else "server"
         platform_to_extension = {"win32": ".exe"}
         need_asset = f"ActionMulticast-{client_or_server}-{sys.platform}{platform_to_extension[sys.platform]}"
-        print(f"Требуемый файл: {need_asset}")
+        Logger.log(f"Требуемый файл: {need_asset}")
         for asset in self.release["assets"]:
             if asset["name"] == need_asset:
                 download_url = asset["browser_download_url"]
                 save_path = os.path.join(os.getenv('TEMP'), need_asset)
-                print("Загрузка...")
+                Logger.log("Загрузка...")
                 code = Network.download_file(download_url, save_path)
-                if code != 200:
-                    print(f"Что-то пошло не так при загрузке файла, HTTP-code: {code}")
+                if code is not None:
+                    Logger.log(f"Что-то пошло не так при загрузке файла, HTTP-code: {code}")
                     return False
-                # os.replace(sys.executable, sys.executable + ".old")
-                # shutil.move(save_path, sys.executable)
-                print("Обновление загружено. Оно будет установлено после перезапуска")
+                os.replace(sys.executable, sys.executable + ".old")
+                shutil.move(save_path, sys.executable)
+                Logger.log("Обновление загружено. Оно будет установлено после перезапуска")
                 return True
         else:
-            print("Отсутствует подходящая версия")
+            Logger.log("Отсутствует подходящая версия")
             return False

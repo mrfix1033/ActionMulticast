@@ -2,6 +2,7 @@ import socket
 from abc import ABC
 
 from src.core.CoreCommands import BaseCommand
+from src.core.Loging import Logger
 from src.core.utils import CommandsUtils
 
 
@@ -26,7 +27,7 @@ class ServerToClientCommand(BaseCommand, ABC):
             try:
                 ip_addr = socket.inet_aton(args[0])
             except socket.error:
-                print(CommandsUtils.incorrect_usage(self.get_usage()))
+                Logger.log(CommandsUtils.incorrect_usage(self.get_usage()))
                 return
             self.ip_func(ip_addr)
             self.all_clients_func()
