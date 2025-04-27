@@ -1,8 +1,10 @@
 import abc
 import sys
+import typing
 import winreg
 
 from src.core import CoreConstants
+from src.core.Loging import Logger
 from src.core.utils.CommandsUtils import *
 
 
@@ -25,7 +27,7 @@ class HelpCommand(BaseCommand):
 
     def execute(self, args: list[str]):
         for command in self.commands:
-            print(command.get_usage())
+            Logger.log(command.get_usage())
 
 
 class StartupCommand(BaseCommand):
@@ -57,9 +59,9 @@ class StartupCommand(BaseCommand):
                     0, winreg.KEY_SET_VALUE
             ) as key:
                 winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, f'"{exe_path}"')
-            print(f"Программа добавлена в автозагрузку")
+            Logger.log(f"Программа добавлена в автозагрузку")
         except:
-            print("Ошибка добавления в автозагрузку")
+            Logger.log("Ошибка добавления в автозагрузку")
             traceback.print_exc()
 
     def _remove_from_startup(self):
@@ -71,9 +73,9 @@ class StartupCommand(BaseCommand):
                     0, winreg.KEY_SET_VALUE
             ) as key:
                 winreg.DeleteValue(key, name)
-            print(f"Программа удалена из автозагрузки")
+            Logger.log(f"Программа удалена из автозагрузки")
         except:
-            print("Ошибка удаления из автозагрузки")
+            Logger.log("Ошибка удаления из автозагрузки")
             traceback.print_exc()
 
 
@@ -96,4 +98,15 @@ class Version(BaseCommand):
         return "version - посмотреть версию программы"
 
     def execute(self, args: list[str]):
-        print(self.version)
+        Logger.log(self.version)
+
+
+class CheckUpdate(BaseCommand):
+    def __init__(self, check_update_func: typing.Callable):
+        self.check_update_func = check_update_func
+
+    def get_usage(self) -> str:
+        return "check_update - проверить наличие обновлений"
+
+    def execute(self, args: list[str]):
+        self.check_update_func()

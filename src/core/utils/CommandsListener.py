@@ -2,11 +2,12 @@ import time
 import traceback
 
 from src.core.CoreCommands import BaseCommand
+from src.core.Loging import Logger
 from src.core.utils.CommandsUtils import unknown_command
 
 
 def start_listen_commands(commands_map: dict[str, BaseCommand], is_running_func):
-    print("Вы можете вводить команды")
+    Logger.log("Вы можете вводить команды")
     while is_running_func():
         try:
             command = input().lower().split(' ')
@@ -18,7 +19,7 @@ def start_listen_commands(commands_map: dict[str, BaseCommand], is_running_func)
             try:
                 handler.execute(args)
             except:
-                print("Во время выполнения команды произошла ошибка, пожалуйста, напишите автору")
+                Logger.log("Во время выполнения команды произошла ошибка, пожалуйста, напишите автору")
                 traceback.print_exc()
         except UnicodeDecodeError:
             time.sleep(0.5)

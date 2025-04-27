@@ -1,10 +1,13 @@
+from src.core.Loging import Logger
+
+
 def not_enough_arguments(usage):
-    print(f"Недостаточно аргументов\n{usage}")
+    Logger.log(f"Недостаточно аргументов\n{usage}")
 
 
 def incorrect_usage(usage):
-    print(f"Неверное использование\n{usage}")
+    Logger.log(f"Неверное использование\n{usage}")
 
 
 def unknown_command():
-    print("Неизвестная команда, используйте help для просмотра команд")
+    Logger.log("Неизвестная команда, используйте help для просмотра команд")

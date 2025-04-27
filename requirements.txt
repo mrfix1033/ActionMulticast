@@ -2,4 +2,3 @@ requests
 pywin32
 pynput
 screeninfo
-aioconsole
