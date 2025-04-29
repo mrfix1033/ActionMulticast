@@ -1,12 +1,12 @@
-import ssl
+# import ssl
 from pathlib import Path
 
 import requests
 
 
 def get_client_session():
-    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    ssl_context.load_default_certs()
+    # ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    # ssl_context.load_default_certs()
 
     # connector =aiohttp.TCPConnector(
     #     ssl=ssl_context,

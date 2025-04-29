@@ -1,14 +1,14 @@
 import abc
 
 from src.core.utils import StringUtils
-from src.core.protocol.Action import Action
+from src.core.protocol.Packet import Packet
 
 
-class KeyboardAction(Action, abc.ABC):
+class KeyboardPacket(Packet, abc.ABC):
     pass
 
 
-class KeyboardPressAction(KeyboardAction):
+class KeyboardPressPacket(KeyboardPacket):
     def __init__(self, c: int):
         super().__init__()
         self.c = c
@@ -18,14 +18,15 @@ class KeyboardPressAction(KeyboardAction):
         return __class__.__name__
 
     def serialize(self) -> bytes:
-        return StringUtils.to_str_and_join(self.get_id(), self.c).encode()
+        return StringUtils.to_str_and_join(self.c).encode()
 
     @staticmethod
-    def deserialize(data: list[str]):
-        return KeyboardPressAction(int(data[0]))
+    def deserialize(data: bytes):
+        data = data.decode().split(' ')
+        return KeyboardPressPacket(int(data[0]))
 
 
-class KeyboardReleaseAction(KeyboardAction):
+class KeyboardReleasePacket(KeyboardPacket):
     def __init__(self, c: int):
         super().__init__()
         self.c = c
@@ -35,8 +36,9 @@ class KeyboardReleaseAction(KeyboardAction):
         return __class__.__name__
 
     def serialize(self) -> bytes:
-        return StringUtils.to_str_and_join(self.get_id(), self.c).encode()
+        return StringUtils.to_str_and_join(self.c).encode()
 
     @staticmethod
-    def deserialize(data: list[str]):
-        return KeyboardReleaseAction(int(data[0]))
+    def deserialize(data: bytes):
+        data = data.decode().split(' ')
+        return KeyboardReleasePacket(int(data[0]))

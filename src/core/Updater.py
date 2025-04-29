@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import sys
 import traceback
 
@@ -48,18 +49,18 @@ class Updater:
         client_or_server = "client" if self.is_client else "server"
         platform_to_extension = {"win32": ".exe"}
         need_asset = f"ActionMulticast-{client_or_server}-{sys.platform}{platform_to_extension[sys.platform]}"
-        save_path = os.path.join(os.getenv('TEMP'), need_asset)
         Logger.log(f"Требуемый файл: {need_asset}")
         for asset in self.release["assets"]:
             if asset["name"] == need_asset:
                 download_url = asset["browser_download_url"]
+                save_path = os.path.join(os.getenv('TEMP'), need_asset)
                 Logger.log("Загрузка...")
                 code = Network.download_file(download_url, save_path)
                 if code is not None:
                     Logger.log(f"Что-то пошло не так при загрузке файла, HTTP-code: {code}")
                     return False
-                # os.replace(sys.executable, sys.executable + ".old")
-                # shutil.move(save_path, sys.executable)
+                os.replace(sys.executable, sys.executable + ".old")
+                shutil.move(save_path, sys.executable)
                 Logger.log("Обновление загружено. Оно будет установлено после перезапуска")
                 return True
         else:

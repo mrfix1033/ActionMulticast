@@ -1,4 +1,6 @@
 import asyncio
+import subprocess
+import sys
 import threading
 import time
 import traceback
@@ -6,14 +8,15 @@ import traceback
 import screeninfo
 
 import src.core.utils.CommandsListener
+from src.core import CoreConstants
 from src.core.CoreCommands import *
 from src.core.Exceptions import LastReleaseAlreadyInstalled
-from src.core.Loging import Logger
 from src.core.Updater import Updater
+from src.core.protocol.FromServer import ClientsConsoleVisiblePacket, UpdateClientPacket, StartupPacket
 from src.core.protocol.Keyboard import *
 from src.core.protocol.Mouse import *
 from src.core.protocol.ServerBroadcast import IAmServer
-from src.core.utils.PacketUtils import PacketBuffer
+from src.core.utils.PacketUtils import PacketBuilder
 from src.server import config
 from src.server.commands import *
 
@@ -22,8 +25,9 @@ class ActionMulticastServer:
     def __init__(self):
         self.version = CoreConstants.version
         self.updater = Updater(self.version, False)
-        self.commands_buffer = PacketBuffer()
+        self.commands_buffer = PacketBuilder()
         self.running = True
+
         self.threads = []
         self.clients: list[socket.socket] = []
         self.server = None
@@ -50,6 +54,7 @@ class ActionMulticastServer:
         for thread in self.threads:
             Logger.log("Крепление к потоку", thread)
             thread.join()
+        Logger.log("Все потоки завершены")
 
     def update(self):
         try:
@@ -59,11 +64,15 @@ class ActionMulticastServer:
 
     def start_handle_input(self):
         commands_map = {
-            'startup': StartupCommand(),
-            'update': UpdateCommand(self.update),
-            'restart': RestartCommand(None, self.restart, None, None),
-            'stop': StopCommand(None, self.stop, None, None),
-            'version': Version(self.version),
+            "startup": StartupCommand(self.clients_startup),
+            "update": UpdateCommand(self.update),
+            "clients_console": ClientsConsole(lambda: self.send_to_all_clients(ClientsConsoleVisiblePacket(False)),
+                                              lambda: self.send_to_all_clients(ClientsConsoleVisiblePacket(True))),
+            "update_all_clients": UpdateAllClients(self.update_all_clients),
+            "count": Count(lambda: len(self.clients)),
+            "restart": RestartCommand(None, self.restart, None, None),
+            "stop": StopCommand(None, self.stop, None, None),
+            "version": Version(self.version),
         }
         commands_map["help"] = HelpCommand(list(commands_map.values()))
         src.core.utils.CommandsListener.start_listen_commands(commands_map, lambda: self.running)
@@ -95,46 +104,58 @@ class ActionMulticastServer:
     def restart(self):
         Logger.log("Перезапуск...")
         self.stop_logic()
+        Logger.log("Ожидание завершения работы...")
+        python = sys.executable
+        Logger.log("Запуск нового процесса...")
+        subprocess.Popen([python] + sys.argv)
+        Logger.log("Новый процесс запущен")
+        while True:  # чтобы не завершать текущий процесс (избежать ошибки)
+            time.sleep(999999)
 
     async def start_server_broadcasting(self):
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as self.server_udp:
-            self.server_udp.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            self.server_udp.bind((config.ip, config.port))
-            Logger.log("Маячковый сервер запущен")
-            while self.running:
-                self.server_udp.sendto(IAmServer().serialize() + b'\n', ("255.255.255.255", config.beacon_port))
-                await asyncio.sleep(config.beacon_interval)
-        Logger.log("Маячковый сервер остановлен")
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as self.server_udp:
+                self.server_udp.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                self.server_udp.bind((config.ip, config.port))
+                Logger.log("Маячковый сервер запущен")
+                while self.running:
+                    self.server_udp.sendto(IAmServer.get_id().encode() + b' 0 ', ("255.255.255.255", config.beacon_port))
+                    await asyncio.sleep(config.beacon_interval)
+        finally:
+            Logger.log("Маячковый сервер остановлен")
 
     async def start_server(self):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as self.server:
-            self.server.bind((config.ip, config.port))
-            self.server.listen(1000)
-            Logger.log("Основной сервер запущен")
-            while self.running:
-                try:
-                    await self.accept_client()
-                except InterruptedError:
-                    continue
-                except:
-                    if self.running:
-                        traceback.print_exc()
-                        self.server.accept()
-        Logger.log("Основной сервер остановлен")
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as self.server:
+                self.server.bind((config.ip, config.port))
+                self.server.listen(1000)
+                Logger.log("Основной сервер запущен")
+                while self.running:
+                    try:
+                        await self.accept_client()
+                    except InterruptedError:
+                        continue
+                    except:
+                        if self.running:
+                            traceback.print_exc()
+                            self.server.accept()
+        finally:
+            Logger.log("Основной сервер остановлен")
 
     async def accept_client(self):
         client_socket, client_address = self.server.accept()
         self.clients.append(client_socket)
-        Logger.log("Connected {}".format(client_address))
+        Logger.log(f"{len(self.clients)}) Подключен {client_address}")
 
-    def send_to_all_clients(self, data: bytes):
-        data += '\n'.encode()
+    def send_to_all_clients(self, packet: Packet):
+        packet_bytes = packet.serialize()
+        packet_data = f"{packet.get_id()} {len(packet_bytes)} ".encode() + packet_bytes
         for i in range(len(self.clients) - 1, -1, -1):
             client_socket = self.clients[i]
             try:
-                client_socket.send(data)
+                client_socket.send(packet_data)
             except ConnectionError:
-                self.clients.pop(i)
+                Logger.log(f"{len(self.clients) - 1}) Отключен {self.clients.pop(i).getpeername()}")
 
     def start_listen_actions(self):
         self.keyboard_listener = self.run_keyboard_listener()
@@ -149,12 +170,12 @@ class ActionMulticastServer:
         def on_press(key):
             if isinstance(key, keyboard.Key):
                 key = key.value
-            self.send_to_all_clients(KeyboardPressAction(key.vk).serialize())
+            self.send_to_all_clients(KeyboardPressPacket(key.vk))
 
         def on_release(key):
             if isinstance(key, keyboard.Key):
                 key = key.value
-            self.send_to_all_clients(KeyboardReleaseAction(key.vk).serialize())
+            self.send_to_all_clients(KeyboardReleasePacket(key.vk))
 
         listener = keyboard.Listener(on_press=on_press, on_release=on_release)
         listener.start()
@@ -167,7 +188,7 @@ class ActionMulticastServer:
 
         def on_move(x, y):
             self.send_to_all_clients(
-                MouseMovementAbsolutePercentageAction(x / screen_width, y / screen_height).serialize())
+                MouseMovementAbsolutePercentagePacket(x / screen_width, y / screen_height))
 
         def on_click(x, y, magic_button, pressed):
             magic_to_button_index = {(4, 2, 0): 1, (64, 32, 0): 2, (16, 8, 0): 3}
@@ -176,17 +197,23 @@ class ActionMulticastServer:
                 Logger.log("unknown mouse button pressed/released: {}".format(magic_button))
                 return
             if pressed:
-                self.send_to_all_clients(MousePressAction(button).serialize())
+                self.send_to_all_clients(MousePressPacket(button))
             else:
-                self.send_to_all_clients(MouseReleaseAction(button).serialize())
+                self.send_to_all_clients(MouseReleasePacket(button))
 
         def on_scroll(x, y, dx, dy):
-            self.send_to_all_clients(MouseScrollAction(dx, dy).serialize())
+            self.send_to_all_clients(MouseScrollPacket(dx, dy))
 
         listener = mouse.Listener(on_move=on_move, on_click=on_click, on_scroll=on_scroll)
         listener.start()
         return listener
 
+    def update_all_clients(self, path_to_file):
+        with open(path_to_file, 'rb') as file:
+            self.send_to_all_clients(UpdateClientPacket(file.read()))
+
+    def clients_startup(self, is_add):
+        self.send_to_all_clients(StartupPacket(is_add))
 
 if __name__ == "__main__":
     Logger.log(CoreConstants.greeting("Server"))
@@ -205,3 +232,4 @@ if __name__ == "__main__":
             traceback.print_exc()
             Logger.log("Рестарт через 5 секунд...")
             time.sleep(5)
+    Logger.log("Выполнение программы завершено")

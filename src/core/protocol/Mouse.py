@@ -1,14 +1,14 @@
 import abc
 
 from src.core.utils import StringUtils
-from src.core.protocol.Action import Action
+from src.core.protocol.Packet import Packet
 
 
-class MouseAction(Action, abc.ABC):
+class MousePacket(Packet, abc.ABC):
     pass
 
 
-class MouseMovementAbsolutePercentageAction(MouseAction):
+class MouseMovementAbsolutePercentagePacket(MousePacket):
     def __init__(self, x: float, y: float):
         super().__init__()
         self.x = x
@@ -19,15 +19,16 @@ class MouseMovementAbsolutePercentageAction(MouseAction):
         return __class__.__name__
 
     def serialize(self) -> bytes:
-        st = StringUtils.to_str_and_join(self.get_id(), self.x, self.y)
+        st = StringUtils.to_str_and_join(self.x, self.y)
         return st.encode()
 
     @staticmethod
-    def deserialize(data: list[str]):
-        return MouseMovementAbsolutePercentageAction(float(data[0]), float(data[1]))
+    def deserialize(data: bytes):
+        data = data.decode().split(' ')
+        return MouseMovementAbsolutePercentagePacket(float(data[0]), float(data[1]))
 
 
-class MousePressAction(MouseAction):
+class MousePressPacket(MousePacket):
     def __init__(self, b: int):
         super().__init__()
         self.b = b
@@ -37,14 +38,15 @@ class MousePressAction(MouseAction):
         return __class__.__name__
 
     def serialize(self) -> bytes:
-        return StringUtils.to_str_and_join(self.get_id(), self.b).encode()
+        return StringUtils.to_str_and_join(self.b).encode()
 
     @staticmethod
-    def deserialize(data: list[str]):
-        return MousePressAction(int(data[0]))
+    def deserialize(data: bytes):
+        data = data.decode().split(' ')
+        return MousePressPacket(int(data[0]))
 
 
-class MouseReleaseAction(MouseAction):
+class MouseReleasePacket(MousePacket):
     def __init__(self, b: int):
         super().__init__()
         self.b = b
@@ -54,14 +56,15 @@ class MouseReleaseAction(MouseAction):
         return __class__.__name__
 
     def serialize(self) -> bytes:
-        return StringUtils.to_str_and_join(self.get_id(), self.b).encode()
+        return StringUtils.to_str_and_join(self.b).encode()
 
     @staticmethod
-    def deserialize(data: list[str]):
-        return MouseReleaseAction(int(data[0]))
+    def deserialize(data: bytes):
+        data = data.decode().split(' ')
+        return MouseReleasePacket(int(data[0]))
 
 
-class MouseScrollAction(MouseAction):
+class MouseScrollPacket(MousePacket):
     def __init__(self, dx: int, dy: int):
         super().__init__()
         self.dx = dx
@@ -72,8 +75,9 @@ class MouseScrollAction(MouseAction):
         return __class__.__name__
 
     def serialize(self) -> bytes:
-        return StringUtils.to_str_and_join(self.get_id(), self.dx, self.dy).encode()
+        return StringUtils.to_str_and_join(self.dx, self.dy).encode()
 
     @staticmethod
-    def deserialize(data: list[str]):
-        return MouseScrollAction(int(data[0]), int(data[1]))
+    def deserialize(data: bytes):
+        data = data.decode().split(' ')
+        return MouseScrollPacket(int(data[0]), int(data[1]))

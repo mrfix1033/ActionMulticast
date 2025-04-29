@@ -1,7 +1,7 @@
 import abc
 
 
-class Action:
+class Packet:
     @staticmethod
     @abc.abstractmethod
     def get_id() -> str:
@@ -13,5 +13,5 @@ class Action:
 
     @staticmethod
     @abc.abstractmethod
-    def deserialize(data: str):
+    def deserialize(data: bytes):
         pass
