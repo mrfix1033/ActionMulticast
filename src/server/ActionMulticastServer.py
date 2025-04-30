@@ -1,6 +1,5 @@
 import asyncio
 import subprocess
-import sys
 import threading
 import time
 import traceback
@@ -8,10 +7,10 @@ import traceback
 import screeninfo
 
 import src.core.utils.CommandsListener
-from src.core import CoreConstants
 from src.core.CoreCommands import *
 from src.core.Exceptions import LastReleaseAlreadyInstalled
 from src.core.Updater import Updater
+from src.core.protocol.FromClient import UpdateClientResultPacket
 from src.core.protocol.FromServer import ClientsConsoleVisiblePacket, UpdateClientPacket, StartupPacket
 from src.core.protocol.Keyboard import *
 from src.core.protocol.Mouse import *
@@ -29,9 +28,10 @@ class ActionMulticastServer:
         self.running = True
 
         self.threads = []
-        self.clients: list[socket.socket] = []
+        self.clients: dict[str, socket.socket] = {}
         self.server = None
         self.server_udp = None
+        self.update_all_clients_data = None
 
     def main(self):
         self.threads = [
@@ -43,12 +43,6 @@ class ActionMulticastServer:
         for thread in self.threads:
             thread.start()
         self.start_listen_actions()
-
-    async def _async_start(self):
-        await asyncio.gather(
-            self.start_server(),
-            self.start_server_broadcasting(),
-        )
 
     def join(self):
         for thread in self.threads:
@@ -69,6 +63,7 @@ class ActionMulticastServer:
             "clients_console": ClientsConsole(lambda: self.send_to_all_clients(ClientsConsoleVisiblePacket(False)),
                                               lambda: self.send_to_all_clients(ClientsConsoleVisiblePacket(True))),
             "update_all_clients": UpdateAllClients(self.update_all_clients),
+            "update_all_clients_info": UpdateAllClientsInfo(lambda: self.update_all_clients_data),
             "count": Count(lambda: len(self.clients)),
             "restart": RestartCommand(None, self.restart, None, None),
             "stop": StopCommand(None, self.stop, None, None),
@@ -85,7 +80,7 @@ class ActionMulticastServer:
 
         self.stop_listen_actions()
 
-        for client in self.clients:
+        for client in self.clients.values():
             try:
                 client.close()
             except:
@@ -119,7 +114,8 @@ class ActionMulticastServer:
                 self.server_udp.bind((config.ip, config.port))
                 Logger.log("Маячковый сервер запущен")
                 while self.running:
-                    self.server_udp.sendto(IAmServer.get_id().encode() + b' 0 ', ("255.255.255.255", config.beacon_port))
+                    self.server_udp.sendto(IAmServer.get_id().encode() + b' 0 ',
+                                           ("255.255.255.255", config.beacon_port))
                     await asyncio.sleep(config.beacon_interval)
         finally:
             Logger.log("Маячковый сервер остановлен")
@@ -130,32 +126,65 @@ class ActionMulticastServer:
                 self.server.bind((config.ip, config.port))
                 self.server.listen(1000)
                 Logger.log("Основной сервер запущен")
-                while self.running:
-                    try:
-                        await self.accept_client()
-                    except InterruptedError:
-                        continue
-                    except:
-                        if self.running:
-                            traceback.print_exc()
-                            self.server.accept()
+                await self.accept_clients()
         finally:
             Logger.log("Основной сервер остановлен")
 
-    async def accept_client(self):
-        client_socket, client_address = self.server.accept()
-        self.clients.append(client_socket)
-        Logger.log(f"{len(self.clients)}) Подключен {client_address}")
+    async def accept_clients(self):
+        while self.running:
+            try:
+                client_socket, client_ip_port = self.server.accept()
+                self.clients[client_ip_port[0]] = client_socket
+                client_thread = threading.Thread(target=lambda: self.listen_client(client_socket, client_ip_port))
+                client_thread.start()
+                self.threads.append(client_thread)
+                Logger.log(f"{len(self.clients)}) Подключен {client_ip_port}")
+            except InterruptedError:
+                continue
+            except:
+                if self.running:
+                    Logger.error(traceback.format_exc())
 
-    def send_to_all_clients(self, packet: Packet):
+    def listen_client(self, client_socket: socket.socket, ip_port):
+        packet_builder = PacketBuilder()  # у каждого клиента должен быть свой буфер
+        while self.running:
+            try:
+                data = client_socket.recv(1024)
+            except ConnectionError:
+                Logger.log("Соединение потеряно")
+                break
+            except:
+                if self.running:
+                    Logger.error(traceback.format_exc())
+                continue
+            if not data:
+                return
+            packet_builder.put(data)
+            while True:
+                bytes_excess = packet_builder.get()
+                if bytes_excess is not None:
+                    packet_name, buffer = packet_builder.packet_name, packet_builder.buffer
+                    # если команда выдаст ошибку, она будет всё равно удалена из пакетбилдера
+                    packet_builder = PacketBuilder(bytes_excess)
+                    self.handle_command(ip_port, packet_name, buffer)
+                else:
+                    break
+
+    def handle_command(self, ip_port, packet_name, packet_data):
+        if packet_name == UpdateClientResultPacket.get_id():
+            packet = UpdateClientResultPacket.deserialize(packet_data)
+            self.update_all_clients_data.handle(ip_port[0], packet.is_successful)
+
+    def send_to_all_clients(self, packet: BasePacket):
         packet_bytes = packet.serialize()
         packet_data = f"{packet.get_id()} {len(packet_bytes)} ".encode() + packet_bytes
-        for i in range(len(self.clients) - 1, -1, -1):
+        for i in list(self.clients):  # list, чтобы можно было изменять словарь в итерации
             client_socket = self.clients[i]
             try:
                 client_socket.send(packet_data)
             except ConnectionError:
-                Logger.log(f"{len(self.clients) - 1}) Отключен {self.clients.pop(i).getpeername()}")
+                self.clients.pop(i)
+                Logger.log(f"{len(self.clients)}) Отключен {client_socket.getpeername()}")
 
     def start_listen_actions(self):
         self.keyboard_listener = self.run_keyboard_listener()
@@ -211,11 +240,15 @@ class ActionMulticastServer:
     def update_all_clients(self, path_to_file):
         with open(path_to_file, 'rb') as file:
             self.send_to_all_clients(UpdateClientPacket(file.read()))
+        # после рассылки, чтобы было актуальное число клиентов
+        self.update_all_clients_data = UpdateAllClientsData(list(self.clients.keys()))
 
     def clients_startup(self, is_add):
         self.send_to_all_clients(StartupPacket(is_add))
 
+
 if __name__ == "__main__":
+    CoreConstants.init()
     Logger.log(CoreConstants.greeting("Server"))
     is_main_loop_running = True
     while is_main_loop_running:
@@ -228,8 +261,8 @@ if __name__ == "__main__":
             server.join()
             break
         except:
-            Logger.log("КРИТИЧЕСКАЯ ОШИБКА, пожалуйста, напишите автору")
-            traceback.print_exc()
+            Logger.error("КРИТИЧЕСКАЯ ОШИБКА, пожалуйста, напишите автору")
+            Logger.error(traceback.format_exc())
             Logger.log("Рестарт через 5 секунд...")
             time.sleep(5)
     Logger.log("Выполнение программы завершено")

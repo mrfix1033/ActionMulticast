@@ -18,8 +18,8 @@ def add_to_startup(server_or_client: str):
         ) as key:
             winreg.SetValueEx(key, key_app_name, 0, winreg.REG_SZ, f'"{exe_path}"')
     except:
-        Logger.log("Ошибка при добавлении программы в автозагрузку")
-        traceback.print_exc()
+        Logger.error("Ошибка при добавлении программы в автозагрузку")
+        Logger.error(traceback.format_exc())
 
 def remove_from_startup(server_or_client: str):
     key_app_name = CoreConstants.program_name + server_or_client

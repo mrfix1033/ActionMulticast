@@ -10,6 +10,8 @@ import traceback
 import win32api
 import win32con
 import win32gui
+
+from src.core.protocol.FromClient import UpdateClientResultPacket
 from src.core.protocol.FromServer import UpdateClientPacket, StartupPacket, ClientsConsoleVisiblePacket
 
 import src.core.utils.CommandsListener
@@ -126,10 +128,12 @@ class ActionMulticastClient:
                     except InterruptedError:
                         continue
                     Logger.log("Подключено")
-                    self.start_listen_server(self.client)
+                    self.start_listen_server()
             except ConnectionRefusedError:
                 Logger.log("Соединение отклонено, повторное подключение через 5 секунд")
                 time.sleep(5)
+            except:
+                Logger.error(traceback.format_exc())
             finally:
                 Logger.log("Соединение закрыто")
 
@@ -146,7 +150,7 @@ class ActionMulticastClient:
                 # try:
                 data, ip_port = self.udp_client.recvfrom(1024)
                 # except OSError:
-                #     continue
+                #     continue                                      
                 packet_builder_udp.put(data)
                 while True:
                     bytes_excess = packet_builder_udp.get()
@@ -158,13 +162,10 @@ class ActionMulticastClient:
                         break
         return None
 
-    def start_listen_server(self, client):
+    def start_listen_server(self):
         while self.running:
             try:
-                data = client.recv(1024)
-            # except OSError:
-            #     print("error")
-            #     continue
+                data = self.client.recv(1024)
             except ConnectionError:
                 Logger.log("Соединение потеряно")
                 break
@@ -175,7 +176,8 @@ class ActionMulticastClient:
                 bytes_excess = self.packet_builder.get()
                 if bytes_excess is not None:
                     packet_name, buffer = self.packet_builder.packet_name, self.packet_builder.buffer
-                    self.packet_builder = PacketBuilder(bytes_excess)  # если команда выдаст ошибку, она будет всё равно удалена из пакетбилдера
+                    self.packet_builder = PacketBuilder(
+                        bytes_excess)  # если команда выдаст ошибку, она будет всё равно удалена из пакетбилдера
                     self.handle_command(packet_name, buffer)
                 else:
                     break
@@ -222,11 +224,19 @@ class ActionMulticastClient:
             win32api.mouse_event(win32con.MOUSEEVENTF_WHEEL, 0, 0, packet.dx, packet.dy)
         elif packet_name == UpdateClientPacket.get_id():
             Logger.log("Обновление с сервера...")
-            temp_file_path = os.path.join(os.getenv("TEMP"), f"{CoreConstants.program_name}-update-from-server.exe")
-            with open(temp_file_path, 'wb') as file:
-                file.write(packet_data)
-            shutil.move(sys.executable, sys.executable + ".old")
-            shutil.move(temp_file_path, sys.executable)
+            successful = False
+            try:
+                temp_file_path = os.path.join(os.getenv("TEMP"), f"{CoreConstants.program_name}-update-from-server.exe")
+                with open(temp_file_path, 'wb') as file:
+                    file.write(packet_data)
+                path_for_old = sys.executable + ".old"
+                if os.path.exists(path_for_old):
+                    os.remove(path_for_old)
+                shutil.move(sys.executable, path_for_old)
+                shutil.move(temp_file_path, sys.executable)
+                successful = True
+            finally:
+                self.send_to_server(UpdateClientResultPacket(successful))
             Logger.log("Обновление установлено. Оно будет применено после перезапуска")
         elif packet_name == StartupPacket.get_id():
             packet = StartupPacket.deserialize(packet_data)
@@ -240,6 +250,11 @@ class ActionMulticastClient:
                 Logger.log("Программа удалена из автозагрузки")
         else:
             Logger.log("unknown packet packet_name {}".format(packet_name))
+
+    def send_to_server(self, packet: BasePacket):
+        packet_bytes = packet.serialize()
+        packet_data = f"{packet.get_id()} {len(packet_bytes)} ".encode() + packet_bytes
+        self.client.send(packet_data)
 
     def run_keyboard_listener(self):
         from pynput import keyboard
@@ -275,6 +290,7 @@ class ActionMulticastClient:
 
 
 if __name__ == "__main__":
+    CoreConstants.init()
     Logger.log(CoreConstants.greeting("Client"))
     is_main_loop_running = True
     while is_main_loop_running:
@@ -287,8 +303,8 @@ if __name__ == "__main__":
             client.join()
             break
         except:
-            Logger.log("КРИТИЧЕСКАЯ ОШИБКА, пожалуйста, напишите автору")
-            traceback.print_exc()
+            Logger.error("КРИТИЧЕСКАЯ ОШИБКА, пожалуйста, напишите автору")
+            Logger.error(traceback.format_exc())
             Logger.log("Рестарт через 5 секунд...")
             time.sleep(5)
     Logger.log("Выполнение программы завершено")

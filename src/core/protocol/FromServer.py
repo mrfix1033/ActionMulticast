@@ -1,9 +1,9 @@
 from abc import ABC
 
-from src.core.protocol.Packet import Packet
+from src.core.protocol.BasePacket import BasePacket
 
 
-class FromServerPacket(Packet, ABC):
+class FromServerPacket(BasePacket, ABC):
     pass
 
 

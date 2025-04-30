@@ -1,10 +1,10 @@
 import abc
 
 from src.core.utils import StringUtils
-from src.core.protocol.Packet import Packet
+from src.core.protocol.BasePacket import BasePacket
 
 
-class MousePacket(Packet, abc.ABC):
+class MousePacket(BasePacket, abc.ABC):
     pass
 
 

@@ -6,6 +6,7 @@ from src.core.CoreCommands import BaseCommand
 from src.core.Loging import Logger
 from src.core.utils import CommandsUtils, StartupUtils, StringUtils
 from src.core.utils.CommandsUtils import not_enough_arguments, incorrect_usage
+from src.server.ClientUtils import UpdateAllClientsData
 
 
 class ShutdownCommand(BaseCommand, ABC):
@@ -78,7 +79,9 @@ class UpdateAllClients(BaseCommand):
             not_enough_arguments(self.get_usage())
             return
         path_to_file = StringUtils.to_str_and_join(*args).strip("\"'")
+        Logger.log("Начата рассылка...")
         self.func_to_update(path_to_file)
+        Logger.log("Рассылка окончена")
 
 
 class Count(BaseCommand):
@@ -96,6 +99,7 @@ class StartupCommand(BaseCommand):
     """
     @:param func_for_client - в функцию передается флаг (добавлять в автозагрузку?), если False, то нужно убрать
     """
+
     def __init__(self, func_for_client: typing.Callable[[bool], None]):
         self.func_for_client = func_for_client
 
@@ -128,3 +132,24 @@ class StartupCommand(BaseCommand):
         else:
             incorrect_usage(self.get_usage())
             return
+
+
+class UpdateAllClientsInfo(BaseCommand):
+    def __init__(self, data_getter: typing.Callable[[], UpdateAllClientsData]):
+        self.data_getter = data_getter
+
+    def get_usage(self) -> str:
+        return "update_all_clients_info - показывает статистику по обновлению всех клиентов"
+
+    def execute(self, args: list[str]):
+        data = self.data_getter()
+        if data is None:
+            Logger.log("Команда обновления не вызывалась")
+            return
+        Logger.log(f"Обновленные ({len(data.updated_ips)}):", StringUtils.to_str_and_join(*data.updated_ips))
+        Logger.log(f"Ошибка обновления ({len(data.failed_ips)}):", StringUtils.to_str_and_join(*data.failed_ips))
+        unknown_ips = data.client_ips.copy()
+        for ip in data.failed_ips + data.updated_ips:
+            unknown_ips.remove(ip)
+        Logger.log(f"Неизвестно ({len(unknown_ips)}):", StringUtils.to_str_and_join(*unknown_ips))
+        Logger.log("Всего:", len(data.client_ips))

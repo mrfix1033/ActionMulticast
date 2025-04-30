@@ -1,7 +1,7 @@
 import abc
 
 
-class Packet:
+class BasePacket:
     @staticmethod
     @abc.abstractmethod
     def get_id() -> str:

@@ -1,10 +1,10 @@
 import abc
 
 from src.core.utils import StringUtils
-from src.core.protocol.Packet import Packet
+from src.core.protocol.BasePacket import BasePacket
 
 
-class KeyboardPacket(Packet, abc.ABC):
+class KeyboardPacket(BasePacket, abc.ABC):
     pass
 
 

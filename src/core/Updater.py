@@ -37,8 +37,8 @@ class Updater:
         except KeyError:
             Logger.log("Слишком частый запрос обновлений, попробуйте позже")
         except:
-            Logger.log("Не удалось запросить обновления")
-            traceback.print_exc()
+            Logger.warn("Не удалось запросить обновления")
+            Logger.error(traceback.format_exc())
             return
 
     def update(self) -> bool:
@@ -59,7 +59,10 @@ class Updater:
                 if code is not None:
                     Logger.log(f"Что-то пошло не так при загрузке файла, HTTP-code: {code}")
                     return False
-                os.replace(sys.executable, sys.executable + ".old")
+                path_for_old = sys.executable + ".old"
+                if os.path.exists(path_for_old):
+                    os.remove(path_for_old)
+                shutil.move(sys.executable, path_for_old)
                 shutil.move(save_path, sys.executable)
                 Logger.log("Обновление загружено. Оно будет установлено после перезапуска")
                 return True

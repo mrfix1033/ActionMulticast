@@ -1,8 +1,8 @@
-from src.core.protocol.Packet import Packet
+from src.core.protocol.BasePacket import BasePacket
 from src.core.utils import StringUtils
 
 
-class IAmServer(Packet):
+class IAmServer(BasePacket):
     @staticmethod
     def get_id() -> str:
         return __class__.__name__
