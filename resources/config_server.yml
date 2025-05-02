@@ -3,3 +3,4 @@ port: 10330
 beacon_port: 10331
 beacon_interval: 3
 auto_enable_startup: true
+find_sound_volume: 0.4

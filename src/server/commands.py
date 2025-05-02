@@ -1,12 +1,12 @@
-import socket
 import typing
 from abc import ABC
 
 from src.core.CoreCommands import BaseCommand
-from src.core.Loging import Logger
-from src.core.utils import CommandsUtils, StartupUtils, StringUtils
-from src.core.utils.CommandsUtils import not_enough_arguments, incorrect_usage
-from src.server.ClientUtils import UpdateAllClientsData
+from src.core.protocol.FromServer import FindPacket
+from src.core.utils import StartupUtils, StringUtils
+from src.core.utils.CommandsUtils import *
+from src.core.utils.StringUtils import is_correct_ip
+from src.server.ServerUtils import UpdateAllClientsData
 
 
 class ShutdownCommand(BaseCommand, ABC):
@@ -18,7 +18,7 @@ class ShutdownCommand(BaseCommand, ABC):
 
     def execute(self, args: list[str]):
         if not args:
-            CommandsUtils.not_enough_arguments(self.get_usage())
+            not_enough_arguments(self.get_usage())
             return
         if args[0] == "all":
             self.all_func()
@@ -27,10 +27,8 @@ class ShutdownCommand(BaseCommand, ABC):
         elif args[0] == "server":
             self.server_func()
         else:
-            try:
-                socket.inet_aton(args[0])
-            except socket.error:
-                Logger.log(CommandsUtils.incorrect_usage(self.get_usage()))
+            if not is_correct_ip(args[0]):
+                incorrect_usage(self.get_usage())
                 return
             self.ip_func(args[0])
 
@@ -153,3 +151,35 @@ class UpdateAllClientsInfo(BaseCommand):
             unknown_ips.remove(ip)
         Logger.log(f"Неизвестно ({len(unknown_ips)}):", StringUtils.to_str_and_join(*unknown_ips))
         Logger.log("Всего:", len(data.client_ips))
+
+
+class Find(BaseCommand):
+    def __init__(self, func_to_send_find: typing.Callable[[str, FindPacket.find_types_literal], bool]):
+        self.func_to_send_find = func_to_send_find
+
+    def get_usage(self) -> str:
+        return "find <sound/video/all> <ip1 ip2 ip3...> - дать звуковой/видео/оба сигнал на IPs"
+
+    def execute(self, args: list[str]):
+        if len(args) < 2:
+            not_enough_arguments(self.get_usage())
+            return
+
+        find_type, ips = args[0], args[1:]
+
+        if find_type not in FindPacket.find_types:
+            Logger.log(incorrect_usage(self.get_usage()))
+            return
+
+        incorrect_ips = [ip for ip in ips if not is_correct_ip(ip)]
+        if incorrect_ips:
+            Logger.log("Присутствуют некорректные IP, команда не выполнена:", *incorrect_ips)
+            return
+
+        bad_ips = []
+        for ip in ips:
+            if not self.func_to_send_find(ip, find_type):
+                bad_ips.append(ip)
+
+        if bad_ips:
+            Logger.log("Эти IP не подключены:", *bad_ips)

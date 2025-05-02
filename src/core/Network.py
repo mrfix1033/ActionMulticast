@@ -3,6 +3,8 @@ from pathlib import Path
 
 import requests
 
+from src.core.protocol.BasePacket import BasePacket
+
 
 def get_client_session():
     # ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -29,3 +31,9 @@ def download_file(download_url: str, save_path: str):
                     f.write(response.content)
                     return None
     return response.status_code
+
+
+def serialize_packet(packet: BasePacket):
+    packet_bytes = packet.serialize()
+    packet_data = f"{packet.get_id()} {len(packet_bytes)} ".encode() + packet_bytes
+    return packet_data

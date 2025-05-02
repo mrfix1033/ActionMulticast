@@ -13,17 +13,18 @@ import win32con
 import win32gui
 
 import src.core.utils.CommandsListener
+from src.client.FindingUtils import FindingManager
 from src.client.commands import *
 from src.core import CoreConstants, Configuration
 from src.core.CoreCommands import *
 from src.core.Exceptions import LastReleaseAlreadyInstalled
 from src.core.Loging import Logger
+from src.core.Network import serialize_packet
 from src.core.Updater import Updater
 from src.core.protocol.FromClient import UpdateClientResultPacket
-from src.core.protocol.FromServer import UpdateClientPacket, StartupPacket, ClientsConsoleVisiblePacket
+from src.core.protocol.FromServer import *
 from src.core.protocol.Keyboard import *
 from src.core.protocol.Mouse import *
-from src.core.protocol.ServerBroadcast import IAmServer
 from src.core.utils.PacketUtils import PacketBuilder
 
 
@@ -42,8 +43,10 @@ class ActionMulticastClient:
         self.config = Configuration.YamlConfig("config_client.yml")
 
         self.console_hidden = False
-        self.keyboard_listener = None
+        self.keyboard_listeners = None
         self.console_window = win32gui.GetForegroundWindow()
+
+        self.finding_manager = FindingManager()
 
     def main(self):
         if self.config.start_hidden:
@@ -57,7 +60,7 @@ class ActionMulticastClient:
         for thread in self.threads:
             thread.start()
 
-        self.keyboard_listener = self.run_keyboard_listener()
+        self.keyboard_listeners = self.run_keyboard_listeners()
 
         self.loop.run_until_complete(self._async_start())  # blocking
 
@@ -93,7 +96,8 @@ class ActionMulticastClient:
         self.running = False
         global is_main_loop_running
         is_main_loop_running = False
-        self.keyboard_listener.stop()
+        for listener in self.keyboard_listeners:
+            listener.stop()
         if self.udp_client is not None:
             self.udp_client.close()
         if self.client is not None:
@@ -151,16 +155,15 @@ class ActionMulticastClient:
 
             while self.running:
                 Logger.log("Ожидание маяка...")
-                # try:
                 data, ip_port = self.udp_client.recvfrom(1024)
-                # except OSError:
-                #     continue                                      
                 packet_builder_udp.put(data)
                 while True:
                     bytes_excess = packet_builder_udp.get()
                     if bytes_excess is not None:
-                        if packet_builder_udp.packet_name == IAmServer.get_id():
+                        if packet_builder_udp.packet_name == IAmServerPacket.get_id():
                             return ip_port
+                        else:
+                            Logger.warn(f"Неизвестный маяк {data}")
                         packet_builder_udp = PacketBuilder(bytes_excess)
                     else:
                         break
@@ -252,15 +255,23 @@ class ActionMulticastClient:
                 Logger.log("По инициативе сервера, программа удаляется из автозагрузки...")
                 StartupUtils.remove_from_startup("Client")
                 Logger.log("Программа удалена из автозагрузки")
+        elif packet_name == FindPacket.get_id():
+            packet = FindPacket.deserialize(packet_data)
+            if packet.find_type == "sound":
+                self.finding_manager.sound(packet.volume)
+            elif packet.find_type == "video":
+                self.finding_manager.video()
+            elif packet.find_type == "all":
+                self.finding_manager.all(packet.volume)
+            else:
+                Logger.log(f"Неизвестные данные пакеты для пакета FindPacket: {packet_data}")
         else:
-            Logger.log("unknown packet packet_name {}".format(packet_name))
+            Logger.log(f"Неизвестный пакет {packet_name} с данными {packet_data}")
 
     def send_to_server(self, packet: BasePacket):
-        packet_bytes = packet.serialize()
-        packet_data = f"{packet.get_id()} {len(packet_bytes)} ".encode() + packet_bytes
-        self.client.send(packet_data)
+        self.client.send(serialize_packet(packet))
 
-    def run_keyboard_listener(self):
+    def run_keyboard_listeners(self):
         from pynput import keyboard
         def on_activate():
             if self.console_hidden:
@@ -269,18 +280,23 @@ class ActionMulticastClient:
                 self.hide_console()
 
         def get_func(hotkey_func):
-            def func(key):
+            def handle_key_and_put_it_in_hotkey_handler(key):
                 if isinstance(key, keyboard.Key):
                     key = key.value
                 key = key.vk
                 hotkey_func(key)
 
-            return func
+            return handle_key_and_put_it_in_hotkey_handler
+
+        def any_action_func(key):
+            self.finding_manager.flag = False
 
         hotkey = keyboard.HotKey(self.config.keycodes_to_hide_show_console, on_activate)
-        listener = keyboard.Listener(on_press=get_func(hotkey.press), on_release=get_func(hotkey.release))
-        listener.start()
-        return listener
+        hotkey_listener = keyboard.Listener(on_press=get_func(hotkey.press), on_release=get_func(hotkey.release))
+        hotkey_listener.start()
+        any_action_listener = keyboard.Listener(on_press=any_action_func)
+        any_action_listener.start()
+        return [hotkey_listener, any_action_listener]
 
     def hide_console(self):
         self.console_hidden = True
@@ -303,7 +319,7 @@ if __name__ == "__main__":
             client.main()
             client.join()
         except KeyboardInterrupt:
-            client.stop()  # ignore
+            client.stop()  # noqa
             client.join()
             break
         except:

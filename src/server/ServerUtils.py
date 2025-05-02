@@ -1,12 +1,6 @@
 from src.core.Loging import Logger
 
 
-class ClientData:
-    def __init__(self, ip_port, connection):
-        self.ip_port = ip_port
-        self.connection = connection
-
-
 class UpdateAllClientsData:
     def __init__(self, client_ips: list[str]):
         self.client_ips = client_ips

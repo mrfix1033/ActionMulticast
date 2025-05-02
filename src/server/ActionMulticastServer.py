@@ -1,4 +1,5 @@
 import asyncio
+import socket
 import subprocess
 import sys
 import threading
@@ -11,12 +12,13 @@ import src.core.utils.CommandsListener
 from src.core import CoreConstants, Configuration
 from src.core.CoreCommands import *
 from src.core.Exceptions import LastReleaseAlreadyInstalled
+from src.core.Network import serialize_packet
 from src.core.Updater import Updater
 from src.core.protocol.FromClient import UpdateClientResultPacket
-from src.core.protocol.FromServer import ClientsConsoleVisiblePacket, UpdateClientPacket, StartupPacket
+from src.core.protocol.FromServer import ClientsConsoleVisiblePacket, UpdateClientPacket, StartupPacket, \
+    IAmServerPacket
 from src.core.protocol.Keyboard import *
 from src.core.protocol.Mouse import *
-from src.core.protocol.ServerBroadcast import IAmServer
 from src.core.utils.PacketUtils import PacketBuilder
 from src.server.commands import *
 
@@ -33,7 +35,7 @@ class ActionMulticastServer:
         self.server = None
         self.server_udp = None
         self.update_all_clients_data = None
-        
+
         self.config = Configuration.YamlConfig("config_server.yml")
 
         self.keyboard_listener = None
@@ -73,6 +75,7 @@ class ActionMulticastServer:
             "update_all_clients": UpdateAllClients(self.update_all_clients),
             "update_all_clients_info": UpdateAllClientsInfo(lambda: self.update_all_clients_data),
             "count": Count(lambda: len(self.clients)),
+            "find": Find(self.find_func),
             "restart": RestartCommand(None, self.restart, None, None),
             "stop": StopCommand(None, self.stop, None, None),
             "version": Version(self.version),
@@ -122,7 +125,7 @@ class ActionMulticastServer:
                 self.server_udp.bind((self.config.ip, self.config.port))
                 Logger.log("Маячковый сервер запущен")
                 while self.running:
-                    self.server_udp.sendto(IAmServer.get_id().encode() + b' 0 ',
+                    self.server_udp.sendto(serialize_packet(IAmServerPacket()),
                                            ("255.255.255.255", self.config.beacon_port))
                     await asyncio.sleep(self.config.beacon_interval)
         finally:
@@ -154,12 +157,13 @@ class ActionMulticastServer:
                     Logger.error(traceback.format_exc())
 
     def listen_client(self, client_socket: socket.socket, ip_port):
-        packet_builder = PacketBuilder()  # у каждого клиента должен быть свой буфер
+        packet_builder = PacketBuilder()
         while self.running:
             try:
                 data = client_socket.recv(1024)
             except ConnectionError:
-                Logger.log("Соединение потеряно")
+                self.clients.pop(ip_port[0])
+                Logger.log(f"{len(self.clients)}) Соединение потеряно {ip_port}")
                 break
             except:
                 if self.running:
@@ -184,8 +188,7 @@ class ActionMulticastServer:
             self.update_all_clients_data.handle(ip_port[0], packet.is_successful)
 
     def send_to_all_clients(self, packet: BasePacket):
-        packet_bytes = packet.serialize()
-        packet_data = f"{packet.get_id()} {len(packet_bytes)} ".encode() + packet_bytes
+        packet_data = serialize_packet(packet)
         for i in list(self.clients):  # list, чтобы можно было изменять словарь в итерации
             client_socket = self.clients[i]
             try:
@@ -254,6 +257,12 @@ class ActionMulticastServer:
     def clients_startup(self, is_add):
         self.send_to_all_clients(StartupPacket(is_add))
 
+    def find_func(self, ip: str, find_type: typing.Literal["sound", "video", "all"]) -> bool:
+        if ip not in self.clients:
+            return False
+        self.clients[ip].send(serialize_packet(FindPacket(find_type, self.config.find_sound_volume)))
+        return True
+
 
 if __name__ == "__main__":
     CoreConstants.init()
@@ -265,7 +274,7 @@ if __name__ == "__main__":
             server.main()
             server.join()
         except KeyboardInterrupt:
-            server.stop()  # ignore
+            server.stop()  # noqa
             server.join()
             break
         except:
