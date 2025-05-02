@@ -1,5 +1,6 @@
 import asyncio
 import subprocess
+import sys
 import threading
 import time
 import traceback
@@ -7,6 +8,7 @@ import traceback
 import screeninfo
 
 import src.core.utils.CommandsListener
+from src.core import CoreConstants
 from src.core.CoreCommands import *
 from src.core.Exceptions import LastReleaseAlreadyInstalled
 from src.core.Updater import Updater
@@ -32,6 +34,8 @@ class ActionMulticastServer:
         self.server = None
         self.server_udp = None
         self.update_all_clients_data = None
+        self.keyboard_listener = None
+        self.mouse_listener = None
 
     def main(self):
         self.threads = [

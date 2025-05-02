@@ -3,6 +3,7 @@ import os.path
 import shutil
 import socket
 import subprocess
+import sys
 import threading
 import time
 import traceback
@@ -11,6 +12,7 @@ import win32api
 import win32con
 import win32gui
 
+from src.core import CoreConstants
 from src.core.protocol.FromClient import UpdateClientResultPacket
 from src.core.protocol.FromServer import UpdateClientPacket, StartupPacket, ClientsConsoleVisiblePacket
 

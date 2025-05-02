@@ -4,3 +4,7 @@ ping-without-pong (for count, send выдаст ошибку)
 изменять параметры конфига клиента
 решить проблему с Ctrl+(C/F2)
 найти причину лагов (на клиенте) при update_all_clients
+
+commands:
+server.stop - добавить кто успешно перезапустился, кто нет
+server.update_and_restart_if_successful - сделать какой-то интерфейс, у кого загрузилось, у кого нет
