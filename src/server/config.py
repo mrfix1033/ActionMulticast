@@ -1,5 +1,0 @@
-ip = "0.0.0.0"
-port = 10330
-
-beacon_port = 10331
-beacon_interval = 3

@@ -3,3 +3,4 @@ pywin32
 pynput
 screeninfo
 colorama
+pyyaml

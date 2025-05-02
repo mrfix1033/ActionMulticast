@@ -8,7 +8,7 @@ import traceback
 import screeninfo
 
 import src.core.utils.CommandsListener
-from src.core import CoreConstants
+from src.core import CoreConstants, Configuration
 from src.core.CoreCommands import *
 from src.core.Exceptions import LastReleaseAlreadyInstalled
 from src.core.Updater import Updater
@@ -18,7 +18,6 @@ from src.core.protocol.Keyboard import *
 from src.core.protocol.Mouse import *
 from src.core.protocol.ServerBroadcast import IAmServer
 from src.core.utils.PacketUtils import PacketBuilder
-from src.server import config
 from src.server.commands import *
 
 
@@ -34,13 +33,18 @@ class ActionMulticastServer:
         self.server = None
         self.server_udp = None
         self.update_all_clients_data = None
+        
+        self.config = Configuration.YamlConfig("config_server.yml")
+
         self.keyboard_listener = None
         self.mouse_listener = None
 
     def main(self):
+        if self.config.auto_enable_startup:
+            StartupUtils.add_to_startup("Server")
+
         self.threads = [
             threading.Thread(target=self.start_handle_input),
-            threading.Thread(target=self.updater.check_update),
             threading.Thread(target=lambda: asyncio.run(self.start_server())),
             threading.Thread(target=lambda: asyncio.run(self.start_server_broadcasting())),
         ]
@@ -115,19 +119,19 @@ class ActionMulticastServer:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as self.server_udp:
                 self.server_udp.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-                self.server_udp.bind((config.ip, config.port))
+                self.server_udp.bind((self.config.ip, self.config.port))
                 Logger.log("Маячковый сервер запущен")
                 while self.running:
                     self.server_udp.sendto(IAmServer.get_id().encode() + b' 0 ',
-                                           ("255.255.255.255", config.beacon_port))
-                    await asyncio.sleep(config.beacon_interval)
+                                           ("255.255.255.255", self.config.beacon_port))
+                    await asyncio.sleep(self.config.beacon_interval)
         finally:
             Logger.log("Маячковый сервер остановлен")
 
     async def start_server(self):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as self.server:
-                self.server.bind((config.ip, config.port))
+                self.server.bind((self.config.ip, self.config.port))
                 self.server.listen(1000)
                 Logger.log("Основной сервер запущен")
                 await self.accept_clients()
@@ -256,12 +260,12 @@ if __name__ == "__main__":
     Logger.log(CoreConstants.greeting("Server"))
     is_main_loop_running = True
     while is_main_loop_running:
-        server = ActionMulticastServer()
         try:
+            server = ActionMulticastServer()
             server.main()
             server.join()
         except KeyboardInterrupt:
-            server.stop()
+            server.stop()  # ignore
             server.join()
             break
         except:

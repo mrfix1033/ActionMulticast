@@ -1,12 +1,13 @@
 import sys
 import traceback
+import typing
 import winreg
 
 from src.core import CoreConstants
 from src.core.Loging import Logger
 
 
-def add_to_startup(server_or_client: str):
+def add_to_startup(server_or_client: typing.Literal["Server", "Client"]):
     key_app_name = CoreConstants.program_name + server_or_client
     exe_path = sys.executable if getattr(sys, "frozen", False) else sys.argv[0]
     key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"

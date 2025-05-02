@@ -12,17 +12,15 @@ import win32api
 import win32con
 import win32gui
 
-from src.core import CoreConstants
-from src.core.protocol.FromClient import UpdateClientResultPacket
-from src.core.protocol.FromServer import UpdateClientPacket, StartupPacket, ClientsConsoleVisiblePacket
-
 import src.core.utils.CommandsListener
-from src.client import config
 from src.client.commands import *
+from src.core import CoreConstants, Configuration
 from src.core.CoreCommands import *
 from src.core.Exceptions import LastReleaseAlreadyInstalled
 from src.core.Loging import Logger
 from src.core.Updater import Updater
+from src.core.protocol.FromClient import UpdateClientResultPacket
+from src.core.protocol.FromServer import UpdateClientPacket, StartupPacket, ClientsConsoleVisiblePacket
 from src.core.protocol.Keyboard import *
 from src.core.protocol.Mouse import *
 from src.core.protocol.ServerBroadcast import IAmServer
@@ -41,13 +39,17 @@ class ActionMulticastClient:
         self.udp_client = None
         self.client = None
 
+        self.config = Configuration.YamlConfig("config_client.yml")
+
         self.console_hidden = False
         self.keyboard_listener = None
         self.console_window = win32gui.GetForegroundWindow()
 
     def main(self):
-        if config.start_hidden:
+        if self.config.start_hidden:
             self.hide_console()
+        if self.config.auto_enable_startup:
+            StartupUtils.add_to_startup("Client")
 
         self.threads = [
             threading.Thread(target=self.start_handle_input)
@@ -116,7 +118,7 @@ class ActionMulticastClient:
 
     async def start_client(self):
         while self.running:
-            server_ip_port = config.server_ip, config.server_port
+            server_ip_port = self.config.server_ip, self.config.server_port
             if server_ip_port[0] is None:
                 Logger.log("Поиск серверов...")
                 server_ip_port = self.find_server()
@@ -143,7 +145,7 @@ class ActionMulticastClient:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as self.udp_client:
             self.udp_client.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.udp_client.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            self.udp_client.bind(('0.0.0.0', config.beacon_port))
+            self.udp_client.bind(('0.0.0.0', self.config.beacon_port))
 
             packet_builder_udp = PacketBuilder()
 
@@ -275,7 +277,7 @@ class ActionMulticastClient:
 
             return func
 
-        hotkey = keyboard.HotKey(config.keycodes_to_hide_show_console, on_activate)
+        hotkey = keyboard.HotKey(self.config.keycodes_to_hide_show_console, on_activate)
         listener = keyboard.Listener(on_press=get_func(hotkey.press), on_release=get_func(hotkey.release))
         listener.start()
         return listener
@@ -296,12 +298,12 @@ if __name__ == "__main__":
     Logger.log(CoreConstants.greeting("Client"))
     is_main_loop_running = True
     while is_main_loop_running:
-        client = ActionMulticastClient()
         try:
+            client = ActionMulticastClient()
             client.main()
             client.join()
         except KeyboardInterrupt:
-            client.stop()
+            client.stop()  # ignore
             client.join()
             break
         except:

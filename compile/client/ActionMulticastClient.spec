@@ -4,7 +4,7 @@ a = Analysis(
     ['..\\..\\src\\client\\ActionMulticastClient.py'],
     pathex=['../../.venv/Lib/site-packages', '../../'],
     binaries=[],
-    datas=[],
+    datas=[('../../resources/config_client.yml', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

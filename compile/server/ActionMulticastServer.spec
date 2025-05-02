@@ -5,7 +5,7 @@ a = Analysis(
     ['..\\..\\src\\server\\ActionMulticastServer.py'],
     pathex=['../../.venv/Lib/site-packages', '../../'],
     binaries=[],
-    datas=[],
+    datas=[('../../resources/config_server.yml', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
